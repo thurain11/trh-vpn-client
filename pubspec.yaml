@@ -1,0 +1,29 @@
+name: lunex
+description: Lunex VPN client starter skeleton.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.5.1
+  flutter_v2ray_client: ^3.1.0
+  shared_preferences: ^2.3.2
+  http: ^1.2.2
+  mobile_scanner: ^5.2.3
+
+dependency_overrides:
+  flutter_v2ray_client:
+    path: third_party/flutter_v2ray_client
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
