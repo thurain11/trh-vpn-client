@@ -2,6 +2,7 @@ import 'dart:async' show StreamSubscription, unawaited;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../app/di.dart';
+import '../../../../core/error/user_friendly_error.dart';
 import '../../../../core/result/result.dart';
 import '../../../../shared/utils/qr_config_parser.dart';
 import '../../../subscription/application/usecases/sync_subscription.dart';
@@ -92,6 +93,7 @@ class VpnState {
     String? errorMessage,
     bool clearError = false,
   }) {
+    final nextError = clearError ? null : (errorMessage ?? this.errorMessage);
     return VpnState(
       status: status ?? this.status,
       profiles: profiles ?? this.profiles,
@@ -122,7 +124,9 @@ class VpnState {
       runtimeConfigPreview: runtimeConfigPreview == _sentinel
           ? this.runtimeConfigPreview
           : runtimeConfigPreview as String?,
-      errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      errorMessage: nextError == null
+          ? null
+          : UserFriendlyErrorMapper.toMessage(nextError),
     );
   }
 }
@@ -189,6 +193,51 @@ class VpnController extends StateNotifier<VpnState> {
 
   void setSubscriptionInput(String value) {
     state = state.copyWith(subscriptionInput: value);
+  }
+
+  void clearErrorMessage() {
+    if (state.errorMessage == null) {
+      return;
+    }
+    state = state.copyWith(clearError: true);
+  }
+
+  Future<void> deleteProfile(VpnProfile profile) async {
+    state = state.copyWith(isBusy: true, clearError: true);
+    try {
+      final result = await _ref.read(deleteProfileProvider).call(profile.id);
+      if (result is FailureResult<void>) {
+        state = state.copyWith(errorMessage: result.message);
+        return;
+      }
+
+      final remaining =
+          state.profiles.where((item) => item.id != profile.id).toList();
+      final nextSelected = state.selectedProfile?.id == profile.id
+          ? (remaining.isEmpty ? null : remaining.first)
+          : state.selectedProfile;
+      state = state.copyWith(
+        profiles: remaining,
+        selectedProfile: nextSelected,
+        runtimeConfigPreview: nextSelected == null
+            ? null
+            : _buildRuntimeConfigPreview(nextSelected),
+      );
+      _prependLog(
+        title: 'PROFILE_DELETE',
+        message: 'Deleted profile ${profile.name}.',
+        severity: VpnLogSeverity.info,
+      );
+    } catch (error) {
+      state = state.copyWith(errorMessage: 'Delete failed: $error');
+      _prependLog(
+        title: 'PROFILE_DELETE',
+        message: 'Delete failed: $error',
+        severity: VpnLogSeverity.error,
+      );
+    } finally {
+      state = state.copyWith(isBusy: false);
+    }
   }
 
   void clearLogs() {
@@ -260,19 +309,68 @@ class VpnController extends StateNotifier<VpnState> {
   }
 
   Future<void> importFromQrPayload(String rawPayload) async {
-    final normalized = const QrConfigParser().normalize(rawPayload);
+    const parser = QrConfigParser();
+
+    final rawPreview = rawPayload.length > 200
+        ? '${rawPayload.substring(0, 200)}…'
+        : rawPayload;
+    _prependLog(
+      title: 'IMPORT_QR',
+      message: 'Raw payload (${rawPayload.length} chars): $rawPreview',
+      severity: VpnLogSeverity.info,
+    );
+
+    final normalized = parser.normalize(rawPayload);
+
     if (normalized.isEmpty) {
       state =
           state.copyWith(errorMessage: 'QR content is empty or unsupported.');
+      _prependLog(
+        title: 'IMPORT_QR',
+        message: 'Normalization returned empty. Raw: $rawPreview',
+        severity: VpnLogSeverity.error,
+      );
       return;
     }
 
+    final normalizedPreview = normalized.length > 200
+        ? '${normalized.substring(0, 200)}…'
+        : normalized;
+    _prependLog(
+      title: 'IMPORT_QR',
+      message: 'Normalized (${normalized.length} chars): $normalizedPreview',
+      severity: VpnLogSeverity.info,
+    );
+
     state = state.copyWith(isBusy: true, clearError: true);
     try {
+      // Prefer the normalized result – it is the fully processed candidate.
+      // Fall back to extractDirectProfileUri only when normalize() returned
+      // something other than a profile URI (e.g. an HTTP subscription URL).
+      String? candidateUri;
+      if (_isProfileUri(normalized)) {
+        candidateUri = normalized;
+      } else {
+        candidateUri = parser.extractDirectProfileUri(rawPayload);
+      }
+
+      if (candidateUri != null) {
+        _prependLog(
+          title: 'IMPORT_QR',
+          message:
+              'Importing profile URI: ${candidateUri.length > 160 ? '${candidateUri.substring(0, 160)}…' : candidateUri}',
+          severity: VpnLogSeverity.info,
+        );
+        await _importQrProfileUri(candidateUri);
+        return;
+      }
+
       if (_isHttpLikeUrl(normalized)) {
-        final syncResult = await _ref.read(syncSubscriptionProvider).call(
-              url: normalized,
-            );
+        // Use direct sync – QR codes contain the exact subscription URL,
+        // so URL-variant fallback (/json/ ↔ /sub/) is unnecessary and
+        // would double the total timeout wait on slow connections.
+        final syncResult =
+            await _ref.read(syncSubscriptionProvider).call(url: normalized);
         switch (syncResult) {
           case Success<SubscriptionSyncResult>(data: final data):
             await loadProfiles();
@@ -298,54 +396,17 @@ class VpnController extends StateNotifier<VpnState> {
         return;
       }
 
-      final parsed = _ref.read(vpnProfileImporterProvider).parse(normalized);
-      switch (parsed) {
-        case Success<VpnProfile>(data: final profile):
-          final qrProfile = profile.copyWith(
-            source: VpnProfileSource(
-              type: VpnProfileSourceType.qr,
-              originalValue: normalized,
-            ),
-          );
-          final saveResult =
-              await _ref.read(vpnRepositoryProvider).saveProfile(qrProfile);
-          if (saveResult is FailureResult<void>) {
-            state = state.copyWith(errorMessage: saveResult.message);
-            _prependLog(
-              title: 'IMPORT_QR',
-              message: saveResult.message,
-              severity: VpnLogSeverity.error,
-            );
-            return;
-          }
-
-          state = state.copyWith(
-            profiles: [
-              ...state.profiles.where((item) => item.id != qrProfile.id),
-              qrProfile,
-            ],
-            selectedProfile: qrProfile,
-            runtimeConfigPreview: _buildRuntimeConfigPreview(qrProfile),
-            errorMessage: null,
-          );
-          _prependLog(
-            title: 'IMPORT_QR',
-            message: 'Imported ${qrProfile.name} from QR scan.',
-            severity: VpnLogSeverity.info,
-          );
-        case FailureResult<VpnProfile>(message: final message):
-          final preview = normalized.length > 160
-              ? '${normalized.substring(0, 160)}...'
-              : normalized;
-          state = state.copyWith(
-            errorMessage: '$message\nScanned: $preview',
-          );
-          _prependLog(
-            title: 'IMPORT_QR',
-            message: '$message (raw QR: $preview)',
-            severity: VpnLogSeverity.error,
-          );
-      }
+      final preview = normalized.length > 160
+          ? '${normalized.substring(0, 160)}...'
+          : normalized;
+      state = state.copyWith(
+        errorMessage: 'Unsupported profile format.\nScanned: $preview',
+      );
+      _prependLog(
+        title: 'IMPORT_QR',
+        message: 'Unsupported profile format (raw QR: $preview)',
+        severity: VpnLogSeverity.error,
+      );
     } catch (error) {
       state = state.copyWith(errorMessage: 'QR import failed: $error');
       _prependLog(
@@ -363,6 +424,103 @@ class VpnController extends StateNotifier<VpnState> {
     return lower.startsWith('http://') || lower.startsWith('https://');
   }
 
+  bool _isProfileUri(String value) {
+    final lower = value.toLowerCase();
+    return lower.startsWith('vless://') ||
+        lower.startsWith('vmess://') ||
+        lower.startsWith('trojan://') ||
+        lower.startsWith('ss://');
+  }
+
+  Future<Result<SubscriptionSyncResult>> _syncSubscriptionWithFallback(
+    String originalUrl,
+  ) async {
+    final candidates = _candidateSubscriptionUrls(originalUrl);
+    FailureResult<SubscriptionSyncResult>? lastFailure;
+
+    for (final candidate in candidates) {
+      final result =
+          await _ref.read(syncSubscriptionProvider).call(url: candidate);
+      if (result is Success<SubscriptionSyncResult>) {
+        return result;
+      }
+      lastFailure = result as FailureResult<SubscriptionSyncResult>;
+    }
+
+    return lastFailure ??
+        const FailureResult<SubscriptionSyncResult>(
+          'Subscription sync failed.',
+        );
+  }
+
+  List<String> _candidateSubscriptionUrls(String url) {
+    final normalized = url.trim();
+    final candidates = <String>[normalized];
+    final uri = Uri.tryParse(normalized);
+    if (uri == null) {
+      return candidates;
+    }
+
+    final path = uri.path;
+    if (path.contains('/json/')) {
+      candidates.add(
+          uri.replace(path: path.replaceFirst('/json/', '/sub/')).toString());
+    } else if (path.contains('/sub/')) {
+      candidates.add(
+          uri.replace(path: path.replaceFirst('/sub/', '/json/')).toString());
+    }
+
+    return candidates.toSet().toList(growable: false);
+  }
+
+  Future<void> _importQrProfileUri(String uri) async {
+    final parsed = _ref.read(vpnProfileImporterProvider).parse(uri);
+    switch (parsed) {
+      case Success<VpnProfile>(data: final profile):
+        final qrProfile = profile.copyWith(
+          source: VpnProfileSource(
+            type: VpnProfileSourceType.qr,
+            originalValue: uri,
+          ),
+        );
+        final saveResult = await _ref.read(vpnRepositoryProvider).saveProfile(
+              qrProfile,
+            );
+        if (saveResult is FailureResult<void>) {
+          state = state.copyWith(errorMessage: saveResult.message);
+          _prependLog(
+            title: 'IMPORT_QR',
+            message: saveResult.message,
+            severity: VpnLogSeverity.error,
+          );
+          return;
+        }
+
+        state = state.copyWith(
+          profiles: [
+            ...state.profiles.where((item) => item.id != qrProfile.id),
+            qrProfile
+          ],
+          selectedProfile: qrProfile,
+          runtimeConfigPreview: _buildRuntimeConfigPreview(qrProfile),
+          errorMessage: null,
+        );
+        _prependLog(
+          title: 'IMPORT_QR',
+          message: 'Imported ${qrProfile.name} from QR scan.',
+          severity: VpnLogSeverity.info,
+        );
+      case FailureResult<VpnProfile>(message: final message):
+        final preview = uri.length > 160 ? '${uri.substring(0, 160)}...' : uri;
+        state = state.copyWith(errorMessage: '$message\nScanned: $preview');
+        _prependLog(
+          title: 'IMPORT_QR',
+          message: '$message (raw QR: $preview)',
+          severity: VpnLogSeverity.error,
+        );
+    }
+  }
+
   Future<void> syncSubscription() async {
     final url = state.subscriptionInput.trim();
     if (url.isEmpty) {
@@ -371,7 +529,7 @@ class VpnController extends StateNotifier<VpnState> {
     }
     state = state.copyWith(isBusy: true, clearError: true);
     try {
-      final result = await _ref.read(syncSubscriptionProvider).call(url: url);
+      final result = await _syncSubscriptionWithFallback(url);
       switch (result) {
         case Success<SubscriptionSyncResult>(data: final data):
           await loadProfiles();

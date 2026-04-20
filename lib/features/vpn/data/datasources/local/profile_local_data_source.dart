@@ -8,6 +8,7 @@ import '../../../domain/entities/vpn_profile.dart';
 abstract class ProfileLocalDataSource {
   Future<List<VpnProfileModel>> getProfiles();
   Future<void> saveProfile(VpnProfileModel profile);
+  Future<void> deleteProfile(String id);
   Future<void> replaceProfiles(List<VpnProfileModel> profiles);
 }
 
@@ -26,6 +27,11 @@ class InMemoryProfileLocalDataSource implements ProfileLocalDataSource {
   }
 
   @override
+  Future<void> deleteProfile(String id) async {
+    _profiles.removeWhere((element) => element.id == id);
+  }
+
+  @override
   Future<void> replaceProfiles(List<VpnProfileModel> profiles) async {
     _profiles
       ..clear()
@@ -36,7 +42,8 @@ class InMemoryProfileLocalDataSource implements ProfileLocalDataSource {
 class SharedPrefsProfileLocalDataSource implements ProfileLocalDataSource {
   SharedPrefsProfileLocalDataSource({
     Future<SharedPreferences>? sharedPreferences,
-  }) : _sharedPreferences = sharedPreferences ?? SharedPreferences.getInstance();
+  }) : _sharedPreferences =
+            sharedPreferences ?? SharedPreferences.getInstance();
 
   static const _profilesKey = 'vpn_profiles_v1';
   final Future<SharedPreferences> _sharedPreferences;
@@ -58,7 +65,8 @@ class SharedPrefsProfileLocalDataSource implements ProfileLocalDataSource {
           .whereType<Map>()
           .map((map) => _fromJson(Map<String, dynamic>.from(map)))
           .toList();
-      profiles.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      profiles
+          .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
       return profiles;
     } catch (_) {
       return const [];
@@ -71,6 +79,14 @@ class SharedPrefsProfileLocalDataSource implements ProfileLocalDataSource {
     final existing = List<VpnProfileModel>.from(await getProfiles());
     existing.removeWhere((item) => item.id == profile.id);
     existing.add(profile);
+    await _persistProfiles(existing, prefs);
+  }
+
+  @override
+  Future<void> deleteProfile(String id) async {
+    final prefs = await _sharedPreferences;
+    final existing = List<VpnProfileModel>.from(await getProfiles());
+    existing.removeWhere((item) => item.id == id);
     await _persistProfiles(existing, prefs);
   }
 
@@ -120,8 +136,10 @@ class SharedPrefsProfileLocalDataSource implements ProfileLocalDataSource {
   }
 
   VpnProfileModel _fromJson(Map<String, dynamic> json) {
-    final endpoint = Map<String, dynamic>.from(json['endpoint'] as Map? ?? const {});
-    final source = Map<String, dynamic>.from(json['source'] as Map? ?? const {});
+    final endpoint =
+        Map<String, dynamic>.from(json['endpoint'] as Map? ?? const {});
+    final source =
+        Map<String, dynamic>.from(json['source'] as Map? ?? const {});
     final credentials = Map<String, dynamic>.from(
       json['credentials'] as Map? ?? const {},
     );
@@ -136,7 +154,8 @@ class SharedPrefsProfileLocalDataSource implements ProfileLocalDataSource {
         host: endpoint['host'] as String? ?? '',
         port: (endpoint['port'] as num?)?.toInt() ?? 0,
         sni: endpoint['sni'] as String?,
-        alpn: (endpoint['alpn'] as List?)?.whereType<String>().toList() ?? const [],
+        alpn: (endpoint['alpn'] as List?)?.whereType<String>().toList() ??
+            const [],
       ),
       protocol: _parseProtocol(json['protocol'] as String?),
       rawConfig: json['rawConfig'] as String? ?? '',

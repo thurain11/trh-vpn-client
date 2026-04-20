@@ -10,7 +10,7 @@ class QrScanPage extends StatefulWidget {
 
 class _QrScanPageState extends State<QrScanPage> {
   final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.normal,
+    detectionSpeed: DetectionSpeed.unrestricted,
     facing: CameraFacing.back,
     torchEnabled: false,
   );
@@ -96,9 +96,7 @@ class _QrScanPageState extends State<QrScanPage> {
       return;
     }
 
-    final value = capture.barcodes
-        .map((barcode) => barcode.rawValue?.trim() ?? '')
-        .firstWhere(
+    final value = capture.barcodes.map(_extractBarcodeValue).firstWhere(
           (item) => item.isNotEmpty,
           orElse: () => '',
         );
@@ -106,10 +104,38 @@ class _QrScanPageState extends State<QrScanPage> {
       return;
     }
 
-    debugPrint('[Lunex][QR] scanned bytes=${value.length}');
-    debugPrint('[Lunex][QR] payload=$value');
+    debugPrint('QR Code Result (${value.length} chars) ===> $value');
 
     _handled = true;
     Navigator.of(context).pop(value);
+  }
+
+  String _extractBarcodeValue(Barcode barcode) {
+    final rawValue = barcode.rawValue;
+    if (rawValue != null && rawValue.trim().isNotEmpty) {
+      return _sanitize(rawValue);
+    }
+
+    final displayValue = barcode.displayValue;
+    if (displayValue != null && displayValue.trim().isNotEmpty) {
+      return _sanitize(displayValue);
+    }
+
+    final bytes = barcode.rawBytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return _sanitize(String.fromCharCodes(bytes));
+    }
+
+    return '';
+  }
+
+  /// Strip null bytes, BOM, and invisible control characters that
+  /// some QR encoders / scanners inject.
+  String _sanitize(String value) {
+    return value
+        .replaceAll('\u0000', '')
+        .replaceAll('\uFEFF', '')
+        .replaceAll(RegExp(r'[\x00-\x08\x0B\x0C\x0E-\x1F]'), '')
+        .trim();
   }
 }

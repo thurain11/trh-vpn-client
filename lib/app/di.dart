@@ -6,6 +6,7 @@ import '../features/subscription/data/datasources/local/subscription_local_data_
 import '../features/vpn/application/services/runtime_health_checker.dart';
 import '../features/vpn/application/usecases/build_runtime_config.dart';
 import '../features/vpn/application/usecases/connect_vpn.dart';
+import '../features/vpn/application/usecases/delete_profile.dart';
 import '../features/vpn/application/usecases/disconnect_vpn.dart';
 import '../features/vpn/application/usecases/import_profile.dart';
 import '../features/vpn/application/usecases/import_profile_from_uri.dart';
@@ -57,11 +58,13 @@ final vpnProfileImporterProvider = Provider<VpnProfileImporter>(
   ]),
 );
 
-final subscriptionLocalDataSourceProvider = Provider<SubscriptionLocalDataSource>(
+final subscriptionLocalDataSourceProvider =
+    Provider<SubscriptionLocalDataSource>(
   (ref) => SharedPrefsSubscriptionLocalDataSource(),
 );
 
-final subscriptionRemoteDataSourceProvider = Provider<SubscriptionRemoteDataSource>(
+final subscriptionRemoteDataSourceProvider =
+    Provider<SubscriptionRemoteDataSource>(
   (ref) => HttpSubscriptionRemoteDataSource(),
 );
 
@@ -89,6 +92,10 @@ final connectVpnProvider = Provider<ConnectVpn>(
 
 final disconnectVpnProvider = Provider<DisconnectVpn>(
   (ref) => DisconnectVpn(ref.watch(vpnRepositoryProvider)),
+);
+
+final deleteProfileProvider = Provider<DeleteProfile>(
+  (ref) => DeleteProfile(ref.watch(vpnRepositoryProvider)),
 );
 
 final observeVpnStatusProvider = Provider<ObserveVpnStatus>(

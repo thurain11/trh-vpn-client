@@ -29,10 +29,18 @@ class VlessUriParser implements VpnProfileImporter {
         uri.fragment.isEmpty ? null : Uri.decodeComponent(uri.fragment);
     final security = uri.queryParameters['security'];
     final type = uri.queryParameters['type'];
+    final idSeed = [
+      uri.userInfo,
+      uri.host,
+      uri.port.toString(),
+      uri.queryParameters['sid'] ?? '',
+      uri.queryParameters['pbk'] ?? '',
+      uri.queryParameters['flow'] ?? '',
+    ].join('|');
 
     return Success(
       VpnProfile(
-        id: ProfileParserHelpers.profileId('vless', '${uri.host}-${uri.port}'),
+        id: ProfileParserHelpers.profileId('vless', idSeed),
         name: remark ?? '${uri.host}:${uri.port}',
         endpoint: VpnServerEndpoint(
           host: uri.host,

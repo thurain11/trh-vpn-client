@@ -4,9 +4,52 @@ class QrConfigParser {
   const QrConfigParser();
 
   String normalize(String raw) {
+    final candidates = _candidateInputs(raw);
+    if (candidates.isEmpty) {
+      return '';
+    }
+
+    final resolved = <String>[];
+    for (final candidate in candidates) {
+      final value = _resolveCandidate(candidate);
+      if (value.isNotEmpty) {
+        resolved.add(value);
+      }
+    }
+
+    // Prefer direct VPN profile URI over subscription URL.
+    for (final value in resolved) {
+      if (_isDirectProfileScheme(value)) {
+        return value;
+      }
+    }
+
+    for (final value in resolved) {
+      if (_isHttpLikeScheme(value)) {
+        return value;
+      }
+    }
+
+    final fallback =
+        _stripWrapperQuotes(raw.replaceAll(RegExp(r'\s+'), ' ').trim());
+    return fallback;
+  }
+
+  String? extractDirectProfileUri(String raw) {
+    final candidates = _candidateInputs(raw);
+    for (final candidate in candidates) {
+      final value = _resolveCandidate(candidate);
+      if (_isDirectProfileScheme(value)) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  List<String> _candidateInputs(String raw) {
     var value = raw.replaceAll('\u0000', '').trim();
     if (value.isEmpty) {
-      return '';
+      return const [];
     }
 
     value = _stripWrapperQuotes(value);
@@ -18,9 +61,14 @@ class QrConfigParser {
         return;
       }
       candidates.add(trimmed);
-      final decoded = Uri.decodeFull(trimmed);
-      if (decoded != trimmed && decoded.isNotEmpty) {
+      final decoded = _decodeUriBestEffort(trimmed);
+      if (decoded != null && decoded.isNotEmpty && decoded != trimmed) {
         candidates.add(_stripWrapperQuotes(decoded.trim()));
+      }
+
+      final embedded = _extractShareLinkFromText(trimmed);
+      if (embedded != null && embedded.isNotEmpty) {
+        candidates.add(embedded);
       }
     }
 
@@ -42,21 +90,24 @@ class QrConfigParser {
       addCandidate(token);
     }
 
-    for (final candidate in candidates) {
-      final resolved = _resolveCandidate(candidate);
-      if (_isSupportedOrSubscriptionScheme(resolved)) {
-        return resolved;
-      }
-    }
-
-    // Last chance: keep best-effort normalized text for error/debug visibility.
-    final fallback = value.replaceAll(RegExp(r'\s+'), ' ').trim();
-    return fallback;
+    return candidates.toList(growable: false);
   }
 
   String _resolveCandidate(String input) {
-    var value = input.trim();
+    var value = _stripWrapperQuotes(input.trim());
     if (value.isEmpty) {
+      return '';
+    }
+
+    final embeddedFirst = _extractShareLinkFromText(value);
+    if (embeddedFirst != null) {
+      value = embeddedFirst;
+    }
+
+    // Early return: valid VPN profile URIs must not go through further
+    // transformations (JSON extraction, base64 decoding, etc.) that can
+    // corrupt URI payloads – especially vmess:// with base64 encoded data.
+    if (_isDirectProfileScheme(value)) {
       return value;
     }
 
@@ -82,15 +133,16 @@ class QrConfigParser {
       }
     }
 
-    final refreshedLower = value.toLowerCase();
-    if (refreshedLower.startsWith('https://') ||
-        refreshedLower.startsWith('http://')) {
+    var refreshedLower = value.toLowerCase();
+    if (refreshedLower.startsWith('http://') ||
+        refreshedLower.startsWith('https://')) {
       final extractedFromUrl = _extractEmbeddedUriFromHttpUrl(value);
       if (extractedFromUrl != null && extractedFromUrl.isNotEmpty) {
         value = extractedFromUrl;
       }
     }
 
+    refreshedLower = value.toLowerCase();
     if (refreshedLower.startsWith('v2ray://') ||
         refreshedLower.startsWith('v2rayn://')) {
       final payload = value.substring(value.indexOf('://') + 3);
@@ -105,12 +157,13 @@ class QrConfigParser {
       if (decoded != null && decoded.trim().isNotEmpty) {
         final decodedTrimmed = decoded.trim();
         final decodedJsonExtract = _extractFromJsonPayload(decodedTrimmed);
-        if (decodedJsonExtract != null && decodedJsonExtract.isNotEmpty) {
-          value = decodedJsonExtract;
-        } else {
-          value = decodedTrimmed;
-        }
+        value = decodedJsonExtract ?? decodedTrimmed;
       }
+    }
+
+    final embeddedLast = _extractShareLinkFromText(value);
+    if (embeddedLast != null) {
+      value = embeddedLast;
     }
 
     return _stripWrapperQuotes(value.trim());
@@ -125,14 +178,37 @@ class QrConfigParser {
     return input;
   }
 
-  bool _isSupportedOrSubscriptionScheme(String value) {
+  bool _isDirectProfileScheme(String value) {
     final lower = value.toLowerCase();
     return lower.startsWith('vless://') ||
         lower.startsWith('vmess://') ||
         lower.startsWith('trojan://') ||
-        lower.startsWith('ss://') ||
-        lower.startsWith('https://') ||
-        lower.startsWith('http://');
+        lower.startsWith('ss://');
+  }
+
+  bool _isHttpLikeScheme(String value) {
+    final lower = value.toLowerCase();
+    return lower.startsWith('http://') || lower.startsWith('https://');
+  }
+
+  String? _extractShareLinkFromText(String text) {
+    final match = RegExp(
+      r'(vless|vmess|trojan|ss)://\S+',
+      caseSensitive: false,
+    ).firstMatch(text);
+    if (match == null) {
+      return null;
+    }
+    final rawMatch = match.group(0);
+    if (rawMatch == null || rawMatch.trim().isEmpty) {
+      return null;
+    }
+    var result = rawMatch.trim();
+    result = result.replaceFirst(RegExp(r'[),;]+$'), '');
+    while (result.endsWith('"') || result.endsWith('\'')) {
+      result = result.substring(0, result.length - 1).trimRight();
+    }
+    return result.isEmpty ? null : result;
   }
 
   String? _extractEmbeddedUriFromHttpUrl(String rawUrl) {
@@ -147,12 +223,25 @@ class QrConfigParser {
         continue;
       }
       final decoded = Uri.decodeComponent(value).trim();
-      final lower = decoded.toLowerCase();
-      if (lower.startsWith('vless://') ||
-          lower.startsWith('vmess://') ||
-          lower.startsWith('trojan://') ||
-          lower.startsWith('ss://')) {
+      if (_isDirectProfileScheme(decoded)) {
         return decoded;
+      }
+
+      final embedded = _extractShareLinkFromText(decoded);
+      if (embedded != null && embedded.isNotEmpty) {
+        return embedded;
+      }
+
+      final decodedBase64 = _decodeBase64ToString(decoded);
+      if (decodedBase64 != null) {
+        final decodedTrimmed = decodedBase64.trim();
+        if (_isDirectProfileScheme(decodedTrimmed)) {
+          return decodedTrimmed;
+        }
+        final embeddedFromBase64 = _extractShareLinkFromText(decodedTrimmed);
+        if (embeddedFromBase64 != null && embeddedFromBase64.isNotEmpty) {
+          return embeddedFromBase64;
+        }
       }
     }
     return null;
@@ -204,6 +293,14 @@ class QrConfigParser {
       } catch (_) {
         return null;
       }
+    }
+  }
+
+  String? _decodeUriBestEffort(String value) {
+    try {
+      return Uri.decodeFull(value);
+    } catch (_) {
+      return null;
     }
   }
 }

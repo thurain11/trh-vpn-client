@@ -37,10 +37,16 @@ class ShadowsocksUriParser implements VpnProfileImporter {
         'Invalid Shadowsocks URI. Expected method, password, host, and port.',
       );
     }
+    final idSeed = [
+      methodPassword.first,
+      methodPassword.sublist(1).join(':'),
+      decoded.$2,
+      decoded.$3.toString(),
+    ].join('|');
 
     return Success(
       VpnProfile(
-        id: ProfileParserHelpers.profileId('ss', '${decoded.$2}-${decoded.$3}'),
+        id: ProfileParserHelpers.profileId('ss', idSeed),
         name: remark ?? '${decoded.$2}:${decoded.$3}',
         endpoint: VpnServerEndpoint(host: decoded.$2, port: decoded.$3),
         protocol: VpnProtocol.shadowsocks,

@@ -38,9 +38,17 @@ class VmessUriParser implements VpnProfileImporter {
       }
 
       final remark = payload['ps'] as String?;
+      final idSeed = [
+        userId,
+        host,
+        port.toString(),
+        payload['net']?.toString() ?? '',
+        payload['path']?.toString() ?? '',
+        payload['host']?.toString() ?? '',
+      ].join('|');
       return Success(
         VpnProfile(
-          id: ProfileParserHelpers.profileId('vmess', '$host-$port'),
+          id: ProfileParserHelpers.profileId('vmess', idSeed),
           name: remark ?? '$host:$port',
           endpoint: VpnServerEndpoint(
             host: host,

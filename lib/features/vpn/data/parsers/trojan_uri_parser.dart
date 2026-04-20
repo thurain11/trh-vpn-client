@@ -28,9 +28,15 @@ class TrojanUriParser implements VpnProfileImporter {
 
     final remark =
         uri.fragment.isEmpty ? null : Uri.decodeComponent(uri.fragment);
+    final idSeed = [
+      uri.userInfo,
+      uri.host,
+      uri.port.toString(),
+      uri.queryParameters['sni'] ?? '',
+    ].join('|');
     return Success(
       VpnProfile(
-        id: ProfileParserHelpers.profileId('trojan', '${uri.host}-${uri.port}'),
+        id: ProfileParserHelpers.profileId('trojan', idSeed),
         name: remark ?? '${uri.host}:${uri.port}',
         endpoint: VpnServerEndpoint(
           host: uri.host,

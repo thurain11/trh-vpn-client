@@ -16,10 +16,10 @@ class VpnRepositoryImpl implements VpnRepository {
     required VpnStatusStream statusStream,
     required ProfileLocalDataSource profileLocalDataSource,
     required VpnRuntimeConfigBuilder runtimeConfigBuilder,
-  }) : _bridge = bridge,
-       _statusStream = statusStream,
-       _profileLocalDataSource = profileLocalDataSource,
-       _runtimeConfigBuilder = runtimeConfigBuilder;
+  })  : _bridge = bridge,
+        _statusStream = statusStream,
+        _profileLocalDataSource = profileLocalDataSource,
+        _runtimeConfigBuilder = runtimeConfigBuilder;
 
   final VpnBridge _bridge;
   final VpnStatusStream _statusStream;
@@ -73,6 +73,16 @@ class VpnRepositoryImpl implements VpnRepository {
       await _profileLocalDataSource.saveProfile(
         VpnProfileModel.fromEntity(profile),
       );
+      return const Success(null);
+    } catch (error) {
+      return FailureResult(error.toString());
+    }
+  }
+
+  @override
+  Future<Result<void>> deleteProfile(String id) async {
+    try {
+      await _profileLocalDataSource.deleteProfile(id);
       return const Success(null);
     } catch (error) {
       return FailureResult(error.toString());
