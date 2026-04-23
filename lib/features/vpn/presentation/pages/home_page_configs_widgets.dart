@@ -20,45 +20,43 @@ class _ConfigRowCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final titleColor =
-        isDark ? const Color(0xFFEFF3FF) : const Color(0xFF2E3444);
-    final subtitleColor =
-        isDark ? const Color(0xFFB7BEE2) : const Color(0xFF6C7385);
+    final titleColor = _primaryTextColor(context);
+    final subtitleColor = _secondaryTextColor(context);
     final rowColor = selected
-        ? (isDark ? const Color(0xFF1A1E57) : const Color(0xFFEAF0FF))
-        : (isDark ? const Color(0xFF121547) : Colors.white);
-    final rowBorder = selected
-        ? (isDark ? const Color(0xFF5567D0) : const Color(0xFFAFBDF0))
-        : (isDark ? const Color(0xFF262C67) : const Color(0xFFE1E6F4));
-    final iconTileBg =
-        isDark ? const Color(0xFF242B68) : const Color(0xFFDDE6FF);
-    final actionColor =
-        isDark ? const Color(0xFFC0C7EE) : const Color(0xFF606A85);
+        ? (isDark ? const Color(0xFF1B2258) : Colors.white)
+        : _surfaceColor(context);
+    final rowBorder = _borderColor(context);
+    final iconTileBg = _softSurfaceColor(context);
+    final actionColor = _secondaryTextColor(context);
+    final selectedBadgeBg =
+        isDark ? const Color(0xFF2A3270) : const Color(0xFFE4ECFF);
+    final selectedBadgeText =
+        isDark ? const Color(0xFFDFE6FF) : const Color(0xFF2E4FBA);
+    final pingChipBg = _softSurfaceColor(context);
     final pingColor = _pingColor(pingMs, isDark: isDark);
 
     return Material(
-      color: rowColor,
-      borderRadius: BorderRadius.circular(20),
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: Container(
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+          padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
+            color: rowColor,
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: rowBorder,
-              width: selected ? 1.2 : 1,
+              width: selected ? 1.0 : 0.8,
             ),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: (isDark
-                              ? const Color(0xFF7288FF)
-                              : const Color(0xFF8BA2E8))
-                          .withValues(alpha: isDark ? 0.22 : 0.14),
-                      blurRadius: 14,
-                      offset: const Offset(0, 6),
+                      color:
+                          Colors.black.withValues(alpha: isDark ? 0.22 : 0.08),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
                     ),
                   ]
                 : null,
@@ -67,40 +65,70 @@ class _ConfigRowCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 42,
-                height: 42,
-                margin: const EdgeInsets.only(right: 10, top: 1),
+                width: 34,
+                height: 34,
+                margin: const EdgeInsets.only(right: 8, top: 1),
                 decoration: BoxDecoration(
                   color: iconTileBg,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(9),
+                  border: Border.all(color: _borderColor(context)),
                 ),
                 child: Icon(
-                  Icons.storage_rounded,
-                  size: 20,
-                  color: selected
-                      ? (isDark
-                          ? const Color(0xFFBFCBFF)
-                          : const Color(0xFF4C62B6))
-                      : actionColor,
+                  Icons.description_rounded,
+                  size: 17,
+                  color: selected ? _kAccent : actionColor,
                 ),
               ),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      profile.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: titleColor,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            profile.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: titleColor,
+                                ),
                           ),
+                        ),
+                        if (selected) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: selectedBadgeBg,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              'SELECTED',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelSmall
+                                  ?.copyWith(
+                                    color: selectedBadgeText,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.6,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       'IP: ${_publicIpLabel(profile)}',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: subtitleColor,
                             fontWeight: FontWeight.w600,
                           ),
@@ -109,36 +137,63 @@ class _ConfigRowCard extends StatelessWidget {
                     Row(
                       children: [
                         Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: pingColor,
-                            shape: BoxShape.circle,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '$pingMs ms',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    color: pingColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                          decoration: BoxDecoration(
+                            color: pingChipBg,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                                color: _borderColor(context), width: 0.8),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: pingColor,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '$pingMs ms',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelSmall
+                                    ?.copyWith(
+                                      color: pingColor,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                              ),
+                            ],
+                          ),
                         ),
                         const Spacer(),
                         IconButton(
                           visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints.tightFor(
+                              width: 30, height: 30),
+                          padding: EdgeInsets.zero,
+                          splashRadius: 16,
                           onPressed: onInfo,
                           icon:
-                              const Icon(Icons.info_outline_rounded, size: 20),
+                              const Icon(Icons.info_outline_rounded, size: 19),
                           color: actionColor,
                           tooltip: 'Info',
                         ),
                         IconButton(
                           visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints.tightFor(
+                              width: 30, height: 30),
+                          padding: EdgeInsets.zero,
+                          splashRadius: 16,
                           onPressed: onDelete,
                           icon: const Icon(Icons.delete_outline_rounded,
-                              size: 20),
+                              size: 19),
                           color: const Color(0xFFD14D41),
                           tooltip: 'Delete',
                         ),
@@ -163,9 +218,8 @@ class _SortButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final buttonBg = isDark ? const Color(0xFF1D2455) : _kAccentSoftStrong;
-    final buttonText = isDark ? const Color(0xFFC8D5FF) : _kAccentDark;
+    final buttonBg = _surfaceColor(context);
+    final buttonText = _primaryTextColor(context);
     final label = mode == _ConfigSortMode.ping ? 'Latency' : 'Name';
 
     return PopupMenuButton<_ConfigSortMode>(
@@ -188,19 +242,19 @@ class _SortButton extends StatelessWidget {
         ),
       ],
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         decoration: BoxDecoration(
           color: buttonBg,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: _borderColor(context)),
+          border: Border.all(color: _borderColor(context), width: 0.8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.sort_rounded, size: 16, color: buttonText),
-            const SizedBox(width: 5),
+            Icon(Icons.tune_rounded, size: 15, color: buttonText),
+            const SizedBox(width: 4),
             Text(
-              label,
+              'Sort: $label',
               style: Theme.of(context).textTheme.labelLarge?.copyWith(
                     color: buttonText,
                     fontWeight: FontWeight.w700,
@@ -254,7 +308,7 @@ class _EmptyConfigsCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: _surfaceColor(context),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _borderColor(context)),
+        border: Border.all(color: _borderColor(context), width: 0.8),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,

@@ -208,77 +208,43 @@ class _VaultStyleHomePanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          GestureDetector(
-            onTap: onPowerTap,
-            child: Column(
-              children: [
-                Container(
-                  width: 224,
-                  height: 224,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: powerOuterRing,
-                    border: Border.all(color: powerOuterBorder, width: 1.2),
-                    boxShadow: [
-                      BoxShadow(
-                        color: accent.withValues(alpha: isDark ? 0.2 : 0.1),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Container(
-                      width: 154,
-                      height: 154,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: powerInnerBg,
-                        gradient: isConnected
-                            ? RadialGradient(
-                                colors: powerGradient,
-                                radius: 0.85,
-                              )
-                            : null,
-                        border: Border.all(color: powerBorder, width: 1.1),
-                      ),
-                      child: Center(
-                        child: isBusy
-                            ? const SizedBox(
-                                width: 36,
-                                height: 36,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 3),
-                              )
-                            : Icon(
-                                Icons.power_settings_new_rounded,
-                                size: 52,
-                                color: accent,
-                              ),
-                      ),
+          Column(
+            children: [
+              _PowerButton(
+                onTap: onPowerTap,
+                isBusy: isBusy,
+                accent: accent,
+                outerRingColor: powerOuterRing,
+                outerBorderColor: powerOuterBorder,
+                innerBackgroundColor: powerInnerBg,
+                innerBorderColor: powerBorder,
+                innerGradient: isConnected
+                    ? RadialGradient(
+                        colors: powerGradient,
+                        radius: 0.85,
+                      )
+                    : null,
+                isDark: isDark,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                stateHeadline,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: mainStateTextColor,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  stateHeadline,
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        color: mainStateTextColor,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.4,
-                      ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  stateHint,
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: actionHintColor,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.6,
-                      ),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                stateHint,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: actionHintColor,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.6,
+                    ),
+              ),
+            ],
           ),
           if (isTransitioning) ...[
             const SizedBox(height: 6),
@@ -487,6 +453,95 @@ class _VaultStyleHomePanel extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PowerButton extends StatelessWidget {
+  const _PowerButton({
+    required this.onTap,
+    required this.isBusy,
+    required this.accent,
+    required this.outerRingColor,
+    required this.outerBorderColor,
+    required this.innerBackgroundColor,
+    required this.innerBorderColor,
+    required this.isDark,
+    this.innerGradient,
+  });
+
+  final VoidCallback onTap;
+  final bool isBusy;
+  final Color accent;
+  final Color outerRingColor;
+  final Color outerBorderColor;
+  final Color innerBackgroundColor;
+  final Color innerBorderColor;
+  final Gradient? innerGradient;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      type: MaterialType.transparency,
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkResponse(
+        containedInkWell: true,
+        highlightShape: BoxShape.circle,
+        radius: 116,
+        splashColor: accent.withValues(
+          alpha: isDark ? 0.20 : 0.14,
+        ),
+        highlightColor: accent.withValues(
+          alpha: isDark ? 0.08 : 0.06,
+        ),
+        onTap: onTap,
+        onTapDown: (_) {
+          Feedback.forTap(context);
+        },
+        child: Container(
+          width: 224,
+          height: 224,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: outerRingColor,
+            border: Border.all(color: outerBorderColor, width: 1.2),
+            boxShadow: [
+              BoxShadow(
+                color: accent.withValues(alpha: isDark ? 0.2 : 0.1),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Center(
+            child: Container(
+              width: 154,
+              height: 154,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: innerBackgroundColor,
+                gradient: innerGradient,
+                border: Border.all(color: innerBorderColor, width: 1.1),
+              ),
+              child: Center(
+                child: isBusy
+                    ? const SizedBox(
+                        width: 36,
+                        height: 36,
+                        child: CircularProgressIndicator(strokeWidth: 3),
+                      )
+                    : Icon(
+                        Icons.power_settings_new_rounded,
+                        size: 52,
+                        color: accent,
+                      ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

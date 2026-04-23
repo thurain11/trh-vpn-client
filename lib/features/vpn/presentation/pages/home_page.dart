@@ -21,8 +21,6 @@ class HomePage extends ConsumerStatefulWidget {
 enum _ConfigSortMode { ping, name }
 
 const _kAccent = Color(0xFF355EDC);
-const _kAccentDark = Color(0xFF2448B6);
-const _kAccentSoftStrong = Color(0xFFE3EBFF);
 const _kSelectProfileFirstMessage = 'Select a profile first.';
 
 class _HomePageState extends ConsumerState<HomePage> {
@@ -109,22 +107,6 @@ class _HomePageState extends ConsumerState<HomePage> {
         );
       controller.clearErrorMessage();
     });
-
-    if (_importController.text != state.importInput) {
-      _importController.value = TextEditingValue(
-        text: state.importInput,
-        selection: TextSelection.collapsed(offset: state.importInput.length),
-      );
-    }
-
-    if (_subscriptionController.text != state.subscriptionInput) {
-      _subscriptionController.value = TextEditingValue(
-        text: state.subscriptionInput,
-        selection: TextSelection.collapsed(
-          offset: state.subscriptionInput.length,
-        ),
-      );
-    }
 
     final tabViews = <Widget>[
       _buildHomeTab(context, state, controller),
@@ -299,6 +281,11 @@ class _HomePageState extends ConsumerState<HomePage> {
     final selectedLabel = state.selectedProfile == null
         ? 'No selected config'
         : 'Selected: ${state.selectedProfile!.name}';
+    final selectedLabelColor = state.selectedProfile == null
+        ? mutedColor
+        : (Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF7EE2B0)
+            : const Color(0xFF1F8F5A));
 
     return Column(
       children: [
@@ -308,27 +295,13 @@ class _HomePageState extends ConsumerState<HomePage> {
           decoration: BoxDecoration(
             color: _surfaceColor(context),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: _borderColor(context)),
+            border: Border.all(color: _borderColor(context), width: 0.8),
           ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 30,
-                    height: 30,
-                    decoration: BoxDecoration(
-                      color: _softSurfaceColor(context),
-                      borderRadius: BorderRadius.circular(9),
-                      border: Border.all(color: _borderColor(context)),
-                    ),
-                    child: const Icon(
-                      Icons.dns_rounded,
-                      size: 18,
-                      color: _kAccent,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -341,9 +314,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                                     fontWeight: FontWeight.w800,
                                   ),
                         ),
-                        const SizedBox(height: 2),
+                        const SizedBox(height: 1),
                         Text(
-                          '$profileCountLabel  •  Sort: $sortLabel',
+                          'Manage imported profiles',
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     color: mutedColor,
@@ -360,17 +333,35 @@ class _HomePageState extends ConsumerState<HomePage> {
                 ],
               ),
               const SizedBox(height: 10),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  selectedLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: mutedColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
+              Divider(height: 1, color: _borderColor(context)),
+              const SizedBox(height: 9),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '$profileCountLabel • Sort: $sortLabel',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: mutedColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      selectedLabel,
+                      maxLines: 1,
+                      textAlign: TextAlign.right,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: selectedLabelColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -379,7 +370,7 @@ class _HomePageState extends ConsumerState<HomePage> {
         Row(
           children: [
             Expanded(
-              child: OutlinedButton.icon(
+              child: FilledButton.tonalIcon(
                 onPressed: () => _openImportDialog(context),
                 icon: const Icon(Icons.download_rounded),
                 label: const Text('Import / Sync'),
@@ -398,8 +389,22 @@ class _HomePageState extends ConsumerState<HomePage> {
         const SizedBox(height: 10),
         Expanded(
           child: profiles.isEmpty
-              ? _EmptyConfigsCard(
-                  onImportTap: () => _openImportDialog(context),
+              ? LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
+                        ),
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: _EmptyConfigsCard(
+                            onImportTap: () => _openImportDialog(context),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 )
               : ListView.separated(
                   itemCount: profiles.length,
@@ -733,14 +738,72 @@ class _HomePageState extends ConsumerState<HomePage> {
   }
 
   Future<void> _openImportDialog(BuildContext context) async {
+    final current = ref.read(vpnControllerProvider);
+    _importController.value = TextEditingValue(
+      text: current.importInput,
+      selection: TextSelection.collapsed(offset: current.importInput.length),
+    );
+    _subscriptionController.value = TextEditingValue(
+      text: current.subscriptionInput,
+      selection:
+          TextSelection.collapsed(offset: current.subscriptionInput.length),
+    );
+
     await showDialog<void>(
       context: context,
       builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final sectionBg = isDark ? const Color(0xFF151A4B) : Colors.white;
+        final sectionBorder =
+            isDark ? const Color(0xFF2C3376) : const Color(0xFFE4E9F1);
+        final helperText =
+            isDark ? const Color(0xFFAAB4EB) : const Color(0xFF667085);
+        final fieldBg =
+            isDark ? const Color(0xFF0F143D) : const Color(0xFFF7FAFF);
+        final fieldBorder =
+            isDark ? const Color(0xFF353D85) : const Color(0xFFD6DEEF);
+        final fieldHint =
+            isDark ? const Color(0xFF95A0D6) : const Color(0xFF7B8799);
+
+        InputDecoration dialogFieldDecoration({
+          required String hintText,
+          required IconData icon,
+        }) {
+          return InputDecoration(
+            hintText: hintText,
+            hintStyle: TextStyle(
+              color: fieldHint,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w500,
+            ),
+            isDense: true,
+            filled: true,
+            fillColor: fieldBg,
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            prefixIcon: Icon(icon, size: 18, color: fieldHint),
+            prefixIconConstraints:
+                const BoxConstraints(minWidth: 36, minHeight: 36),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: fieldBorder, width: 0.9),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: fieldBorder, width: 0.9),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: _kAccent, width: 1.2),
+            ),
+          );
+        }
+
         return Dialog(
           insetPadding:
               const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
           ),
           child: Consumer(
             builder: (context, ref, _) {
@@ -748,86 +811,176 @@ class _HomePageState extends ConsumerState<HomePage> {
               final controller = ref.read(vpnControllerProvider.notifier);
 
               return Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Import & Sync',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
+                      Row(
+                        children: [
+                          Text(
+                            'Import & Sync',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            splashRadius: 18,
+                            onPressed: () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close_rounded),
+                            tooltip: 'Close',
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text(
-                        'Add a profile by URI or sync from a subscription URL.',
+                        'Paste a profile URI or a subscription URL.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: const Color(0xFF667085),
+                              color: helperText,
                             ),
                       ),
-                      const SizedBox(height: 14),
-                      Text(
-                        'Import URI',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _importController,
-                        minLines: 2,
-                        maxLines: 4,
-                        onChanged: controller.setImportInput,
-                        decoration: const InputDecoration(
-                          hintText:
-                              'Paste vless://, vmess://, trojan://, or ss://',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
+                      const SizedBox(height: 12),
+                      Container(
                         width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed:
-                              state.isBusy ? null : controller.importRawUri,
-                          child: const Text('Import Profile'),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: sectionBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: sectionBorder, width: 0.8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Import URI',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _importController,
+                              minLines: 2,
+                              maxLines: 3,
+                              onChanged: controller.setImportInput,
+                              decoration: dialogFieldDecoration(
+                                hintText:
+                                    'Paste vless://, vmess://, trojan://, or ss://',
+                                icon: Icons.link_rounded,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.tonalIcon(
+                                onPressed: state.isBusy
+                                    ? null
+                                    : () async {
+                                        await controller.importRawUri();
+                                        if (!mounted) {
+                                          return;
+                                        }
+                                        final nextState =
+                                            ref.read(vpnControllerProvider);
+                                        if (nextState.importInput.isEmpty) {
+                                          _importController.clear();
+                                        }
+                                      },
+                                icon: const Icon(Icons.download_rounded),
+                                label: const Text('Import Profile'),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 12),
-                      const Divider(height: 1),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Subscription Sync',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      TextField(
-                        controller: _subscriptionController,
-                        minLines: 1,
-                        maxLines: 2,
-                        onChanged: controller.setSubscriptionInput,
-                        decoration: const InputDecoration(
-                          hintText: 'Paste https:// subscription URL',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      SizedBox(
+                      Container(
                         width: double.infinity,
-                        child: FilledButton.tonal(
-                          onPressed:
-                              state.isBusy ? null : controller.syncSubscription,
-                          child: const Text('Sync Subscription Now'),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: sectionBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: sectionBorder, width: 0.8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Subscription Sync',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _subscriptionController,
+                              minLines: 1,
+                              maxLines: 2,
+                              onChanged: controller.setSubscriptionInput,
+                              decoration: dialogFieldDecoration(
+                                hintText: 'Paste https:// subscription URL',
+                                icon: Icons.language_rounded,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: FilledButton.tonalIcon(
+                                onPressed: state.isBusy
+                                    ? null
+                                    : () async {
+                                        await controller.syncSubscription();
+                                        if (!mounted) {
+                                          return;
+                                        }
+                                        final nextState =
+                                            ref.read(vpnControllerProvider);
+                                        _subscriptionController.text =
+                                            nextState.subscriptionInput;
+                                        _subscriptionController.selection =
+                                            TextSelection.collapsed(
+                                          offset: _subscriptionController
+                                              .text.length,
+                                        );
+                                      },
+                                icon: const Icon(Icons.sync_rounded),
+                                label: const Text('Sync Subscription Now'),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       if (state.lastSubscriptionSyncAt != null) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          'Last sync: ${_formatDateTime(state.lastSubscriptionSyncAt!)}',
-                          style: Theme.of(context).textTheme.bodySmall,
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.schedule_rounded,
+                              size: 14,
+                              color: helperText,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Last sync: ${_formatDateTime(state.lastSubscriptionSyncAt!)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: helperText,
+                                  ),
+                            ),
+                          ],
                         ),
                       ],
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 10),
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
