@@ -1,4 +1,5 @@
 import '../../../../core/result/result.dart';
+import '../../domain/entities/split_tunnel_settings.dart';
 import '../../domain/entities/tunnel_runtime_config.dart';
 import '../../domain/entities/vpn_profile.dart';
 import '../../domain/services/vpn_runtime_config_builder.dart';
@@ -7,13 +8,18 @@ class DefaultVpnRuntimeConfigBuilder implements VpnRuntimeConfigBuilder {
   const DefaultVpnRuntimeConfigBuilder();
 
   @override
-  Result<TunnelRuntimeConfig> build(VpnProfile profile) {
+  Result<TunnelRuntimeConfig> build(
+    VpnProfile profile, {
+    SplitTunnelSettings splitTunnelSettings = const SplitTunnelSettings(),
+  }) {
     if (profile.endpoint.host.isEmpty || profile.endpoint.port <= 0) {
-      return const FailureResult('Profile is missing a valid server address or port.');
+      return const FailureResult(
+          'Profile is missing a valid server address or port.');
     }
 
     final security = _resolveSecurity(profile);
     final transportType = profile.transport.type.name;
+    final splitPlan = _buildSplitTunnelPlan(splitTunnelSettings);
 
     return Success(
       TunnelRuntimeConfig(
@@ -44,6 +50,7 @@ class DefaultVpnRuntimeConfigBuilder implements VpnRuntimeConfigBuilder {
                 'domain': ['localhost'],
                 'outboundTag': 'direct',
               },
+              ...splitPlan.routingRules,
             ],
           },
           'inbounds': [
@@ -74,6 +81,9 @@ class DefaultVpnRuntimeConfigBuilder implements VpnRuntimeConfigBuilder {
             },
           ],
         },
+        blockedApps: splitPlan.blockedApps,
+        bypassSubnets: splitPlan.bypassSubnets,
+        splitTunnelNote: splitPlan.note,
       ),
     );
   }
@@ -146,7 +156,8 @@ class DefaultVpnRuntimeConfigBuilder implements VpnRuntimeConfigBuilder {
     }
   }
 
-  Map<String, dynamic> _buildStreamSettings(VpnProfile profile, String security) {
+  Map<String, dynamic> _buildStreamSettings(
+      VpnProfile profile, String security) {
     final streamSettings = <String, dynamic>{
       'network': _mapTransport(profile.transport.type),
       'security': _mapStreamSecurity(security),
@@ -159,8 +170,10 @@ class DefaultVpnRuntimeConfigBuilder implements VpnRuntimeConfigBuilder {
           'fingerprint': profile.transport.fingerprint,
         if (profile.transport.publicKey != null)
           'publicKey': profile.transport.publicKey,
-        if (profile.transport.shortId != null) 'shortId': profile.transport.shortId,
-        if (profile.transport.spiderX != null) 'spiderX': profile.transport.spiderX,
+        if (profile.transport.shortId != null)
+          'shortId': profile.transport.shortId,
+        if (profile.transport.spiderX != null)
+          'spiderX': profile.transport.spiderX,
       };
     } else if (security != 'none') {
       streamSettings['tlsSettings'] = {
@@ -238,4 +251,128 @@ class DefaultVpnRuntimeConfigBuilder implements VpnRuntimeConfigBuilder {
     }
   }
 
+  _SplitTunnelPlan _buildSplitTunnelPlan(SplitTunnelSettings settings) {
+    if (!settings.enabled) {
+      return const _SplitTunnelPlan.empty();
+    }
+
+    final activeRules =
+        settings.rules.where((rule) => rule.enabled).toList(growable: false);
+    if (activeRules.isEmpty) {
+      return const _SplitTunnelPlan.empty();
+    }
+
+    final domains = <String>[];
+    final ips = <String>[];
+    final appPackages = <String>[];
+
+    for (final rule in activeRules) {
+      switch (rule.type) {
+        case SplitTunnelRuleType.domain:
+          final normalized = _normalizeDomainRuleValue(rule.value);
+          if (normalized.isNotEmpty && !domains.contains(normalized)) {
+            domains.add(normalized);
+          }
+        case SplitTunnelRuleType.ipCidr:
+          final normalized = rule.value.trim();
+          if (normalized.isNotEmpty && !ips.contains(normalized)) {
+            ips.add(normalized);
+          }
+        case SplitTunnelRuleType.appPackage:
+          final normalized = rule.value.trim();
+          if (normalized.isNotEmpty && !appPackages.contains(normalized)) {
+            appPackages.add(normalized);
+          }
+      }
+    }
+
+    final routingRules = <Map<String, dynamic>>[];
+    final blockedApps = <String>[];
+    String? note;
+
+    if (settings.mode == SplitTunnelMode.excludeListedFromVpn) {
+      if (domains.isNotEmpty) {
+        routingRules.add({
+          'type': 'field',
+          'domain': domains,
+          'outboundTag': 'direct',
+        });
+      }
+      if (ips.isNotEmpty) {
+        routingRules.add({
+          'type': 'field',
+          'ip': ips,
+          'outboundTag': 'direct',
+        });
+      }
+      blockedApps.addAll(appPackages);
+    } else {
+      if (domains.isNotEmpty) {
+        routingRules.add({
+          'type': 'field',
+          'domain': domains,
+          'outboundTag': 'proxy',
+        });
+      }
+      if (ips.isNotEmpty) {
+        routingRules.add({
+          'type': 'field',
+          'ip': ips,
+          'outboundTag': 'proxy',
+        });
+      }
+      if (domains.isNotEmpty || ips.isNotEmpty) {
+        routingRules.add({
+          'type': 'field',
+          'network': 'tcp,udp',
+          'outboundTag': 'direct',
+        });
+      }
+      if (appPackages.isNotEmpty) {
+        note =
+            'Split tunneling include-mode for apps is not supported in the current Android runtime.';
+      }
+    }
+
+    return _SplitTunnelPlan(
+      routingRules: routingRules,
+      blockedApps: blockedApps,
+      bypassSubnets: const ['0.0.0.0/0', '::/0'],
+      note: note,
+    );
+  }
+
+  String _normalizeDomainRuleValue(String value) {
+    final trimmed = value.trim().toLowerCase();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    if (trimmed.startsWith('domain:') ||
+        trimmed.startsWith('full:') ||
+        trimmed.startsWith('regexp:') ||
+        trimmed.startsWith('keyword:')) {
+      return trimmed;
+    }
+    return 'domain:$trimmed';
+  }
+}
+
+class _SplitTunnelPlan {
+  const _SplitTunnelPlan({
+    required this.routingRules,
+    required this.blockedApps,
+    required this.bypassSubnets,
+    this.note,
+  });
+
+  const _SplitTunnelPlan.empty()
+      : routingRules = const [],
+        blockedApps = const [],
+        bypassSubnets = const ['0.0.0.0/0', '::/0'],
+        note = null;
+
+  final List<Map<String, dynamic>> routingRules;
+  final List<String> blockedApps;
+  final List<String> bypassSubnets;
+  final String? note;
 }

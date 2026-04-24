@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_v2ray_client/flutter_v2ray.dart';
@@ -62,11 +63,30 @@ class MethodChannelVpnBridge implements VpnBridge {
       );
     }
 
+    if (runtimeConfig.splitTunnelNote != null &&
+        runtimeConfig.splitTunnelNote!.isNotEmpty) {
+      _eventsController.add({
+        'status': 'connecting',
+        'profileName': profile.name,
+        'severity': 'warn',
+        'message': runtimeConfig.splitTunnelNote,
+      });
+    }
+
     final config = _resolveConfig(profile, runtimeConfig);
+    final blockedApps = runtimeConfig.blockedApps
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    final bypassSubnets = runtimeConfig.bypassSubnets
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
     await _v2ray!.startV2Ray(
       remark: profile.name,
       config: config,
-      bypassSubnets: const ['0.0.0.0/0', '::/0'],
+      blockedApps: blockedApps.isEmpty ? null : blockedApps,
+      bypassSubnets: bypassSubnets.isEmpty ? null : bypassSubnets,
       proxyOnly: false,
     );
   }
@@ -203,10 +223,45 @@ class MethodChannelVpnBridge implements VpnBridge {
 
   String _resolveConfig(VpnProfile profile, TunnelRuntimeConfig runtimeConfig) {
     final raw = profile.rawConfig.trim();
+    final hasSplitRouting = _hasSplitRouting(runtimeConfig.engineConfig);
+
+    if (raw.contains('://') && !hasSplitRouting) {
+      return V2ray.parseFromURL(raw).getFullConfiguration();
+    }
+
+    if (_looksLikeJson(raw) && !hasSplitRouting) {
+      return raw;
+    }
+
+    if (runtimeConfig.engineConfig.isNotEmpty) {
+      const encoder = JsonEncoder.withIndent('  ');
+      return encoder.convert(runtimeConfig.engineConfig);
+    }
+
     if (raw.contains('://')) {
       return V2ray.parseFromURL(raw).getFullConfiguration();
     }
+    if (_looksLikeJson(raw)) {
+      return raw;
+    }
     return runtimeConfig.toPrettyJson();
+  }
+
+  bool _hasSplitRouting(Map<String, dynamic> engineConfig) {
+    final routing = engineConfig['routing'];
+    if (routing is! Map) {
+      return false;
+    }
+    final rules = routing['rules'];
+    if (rules is! List) {
+      return false;
+    }
+    return rules.length > 1;
+  }
+
+  bool _looksLikeJson(String value) {
+    final normalized = value.trim();
+    return normalized.startsWith('{') && normalized.endsWith('}');
   }
 
   String _mapState(String state) {

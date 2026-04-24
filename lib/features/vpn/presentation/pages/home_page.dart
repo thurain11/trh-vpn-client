@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../../app/theme_mode_controller.dart';
+import '../../domain/entities/split_tunnel_settings.dart';
 import '../../domain/entities/vpn_profile.dart';
 import '../../domain/entities/vpn_status.dart';
 import '../controllers/vpn_controller.dart';
@@ -495,6 +496,158 @@ class _HomePageState extends ConsumerState<HomePage> {
                     color: mutedTextColor,
                   ),
                 ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('Split Tunneling', style: theme.textTheme.titleMedium),
+                    const Spacer(),
+                    Switch(
+                      value: state.splitTunnelSettings.enabled,
+                      onChanged: (value) =>
+                          controller.setSplitTunnelEnabled(value),
+                    ),
+                  ],
+                ),
+                Text(
+                  state.splitTunnelSettings.enabled
+                      ? 'Custom routing rules are enabled.'
+                      : 'Use app/domain/IP rules to control tunnel routing.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: mutedTextColor,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SegmentedButton<SplitTunnelMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: SplitTunnelMode.excludeListedFromVpn,
+                      icon: Icon(Icons.call_split_rounded),
+                      label: Text('Exclude Listed'),
+                    ),
+                    ButtonSegment(
+                      value: SplitTunnelMode.includeOnlyListedInVpn,
+                      icon: Icon(Icons.filter_alt_rounded),
+                      label: Text('Include Only Listed'),
+                    ),
+                  ],
+                  selected: {state.splitTunnelSettings.mode},
+                  showSelectedIcon: false,
+                  onSelectionChanged: state.splitTunnelSettings.enabled
+                      ? (selection) {
+                          if (selection.isEmpty) {
+                            return;
+                          }
+                          controller.setSplitTunnelMode(selection.first);
+                        }
+                      : null,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Text(
+                      'Rules',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const Spacer(),
+                    FilledButton.tonalIcon(
+                      onPressed: state.splitTunnelSettings.enabled
+                          ? () =>
+                              _showAddSplitTunnelRuleDialog(context, controller)
+                          : null,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add Rule'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                if (state.splitTunnelSettings.rules.isEmpty)
+                  Text(
+                    'No rules yet.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: mutedTextColor,
+                    ),
+                  )
+                else
+                  ...state.splitTunnelSettings.rules.map((rule) {
+                    final ruleIcon = switch (rule.type) {
+                      SplitTunnelRuleType.appPackage => Icons.apps_outlined,
+                      SplitTunnelRuleType.domain => Icons.public_rounded,
+                      SplitTunnelRuleType.ipCidr => Icons.numbers_rounded,
+                    };
+
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: _borderColor(context), width: 0.8),
+                        color: _softSurfaceColor(context),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(ruleIcon, size: 18, color: mutedTextColor),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  rule.value,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                Text(
+                                  _splitTunnelRuleTypeLabel(rule.type),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: mutedTextColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(
+                            value: rule.enabled,
+                            onChanged: state.splitTunnelSettings.enabled
+                                ? (value) => controller.toggleSplitTunnelRule(
+                                      id: rule.id,
+                                      enabled: value,
+                                    )
+                                : null,
+                          ),
+                          IconButton(
+                            visualDensity: VisualDensity.compact,
+                            splashRadius: 18,
+                            onPressed: state.splitTunnelSettings.enabled
+                                ? () =>
+                                    controller.deleteSplitTunnelRule(rule.id)
+                                : null,
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            color: const Color(0xFFD14D41),
+                            tooltip: 'Delete rule',
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
               ],
             ),
           ),
@@ -1012,5 +1165,106 @@ class _HomePageState extends ConsumerState<HomePage> {
       return;
     }
     await controller.importFromQrPayload(scannedValue);
+  }
+
+  Future<void> _showAddSplitTunnelRuleDialog(
+    BuildContext context,
+    VpnController controller,
+  ) async {
+    final valueController = TextEditingController();
+    var selectedType = SplitTunnelRuleType.domain;
+    var localError = '';
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final hint = _splitTunnelRuleHint(selectedType);
+            return AlertDialog(
+              title: const Text('Add Split Rule'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<SplitTunnelRuleType>(
+                    initialValue: selectedType,
+                    decoration: const InputDecoration(
+                      labelText: 'Rule Type',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: SplitTunnelRuleType.values
+                        .map(
+                          (type) => DropdownMenuItem(
+                            value: type,
+                            child: Text(_splitTunnelRuleTypeLabel(type)),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setDialogState(() {
+                        selectedType = value;
+                        localError = '';
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: valueController,
+                    decoration: InputDecoration(
+                      labelText: 'Value',
+                      hintText: hint,
+                      border: const OutlineInputBorder(),
+                    ),
+                  ),
+                  if (localError.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        localError,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFFB42318),
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () async {
+                    final value = valueController.text.trim();
+                    if (value.isEmpty) {
+                      setDialogState(() {
+                        localError = 'Rule value cannot be empty.';
+                      });
+                      return;
+                    }
+                    await controller.addSplitTunnelRule(
+                      type: selectedType,
+                      value: value,
+                    );
+                    if (!context.mounted) {
+                      return;
+                    }
+                    Navigator.of(context).pop();
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    valueController.dispose();
   }
 }

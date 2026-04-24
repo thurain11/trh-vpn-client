@@ -8,6 +8,9 @@ class TunnelRuntimeConfig {
     required this.logLevel,
     required this.engineConfig,
     required this.summary,
+    this.blockedApps = const [],
+    this.bypassSubnets = const ['0.0.0.0/0', '::/0'],
+    this.splitTunnelNote,
   });
 
   final String profileId;
@@ -16,6 +19,9 @@ class TunnelRuntimeConfig {
   final String logLevel;
   final Map<String, dynamic> engineConfig;
   final TunnelRuntimeSummary summary;
+  final List<String> blockedApps;
+  final List<String> bypassSubnets;
+  final String? splitTunnelNote;
 
   Map<String, dynamic> toJson() {
     return {
@@ -25,6 +31,9 @@ class TunnelRuntimeConfig {
       'logLevel': logLevel,
       'summary': summary.toJson(),
       'engineConfig': engineConfig,
+      'blockedApps': blockedApps,
+      'bypassSubnets': bypassSubnets,
+      if (splitTunnelNote != null) 'splitTunnelNote': splitTunnelNote,
     };
   }
 

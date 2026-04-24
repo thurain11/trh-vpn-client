@@ -7,6 +7,7 @@ import '../../../../core/result/result.dart';
 import '../../../../shared/utils/qr_config_parser.dart';
 import '../../../subscription/application/usecases/sync_subscription.dart';
 import '../../application/services/runtime_health_checker.dart';
+import '../../domain/entities/split_tunnel_settings.dart';
 import '../../domain/entities/tunnel_runtime_config.dart';
 import '../../domain/entities/vpn_log_entry.dart';
 import '../../domain/entities/traffic_stats.dart';
@@ -29,6 +30,7 @@ class VpnState {
     this.healthDetails,
     this.lastHealthCheckAt,
     this.isHealthChecking = false,
+    this.splitTunnelSettings = const SplitTunnelSettings(),
     this.logs = const [],
     this.logFilter = VpnLogFilter.all,
     this.logFilePath,
@@ -48,6 +50,7 @@ class VpnState {
   final String? healthDetails;
   final DateTime? lastHealthCheckAt;
   final bool isHealthChecking;
+  final SplitTunnelSettings splitTunnelSettings;
   final List<VpnLogEntry> logs;
   final VpnLogFilter logFilter;
   final String? logFilePath;
@@ -86,6 +89,7 @@ class VpnState {
     Object? healthDetails = _sentinel,
     Object? lastHealthCheckAt = _sentinel,
     bool? isHealthChecking,
+    SplitTunnelSettings? splitTunnelSettings,
     List<VpnLogEntry>? logs,
     VpnLogFilter? logFilter,
     Object? logFilePath = _sentinel,
@@ -117,6 +121,7 @@ class VpnState {
           ? this.lastHealthCheckAt
           : lastHealthCheckAt as DateTime?,
       isHealthChecking: isHealthChecking ?? this.isHealthChecking,
+      splitTunnelSettings: splitTunnelSettings ?? this.splitTunnelSettings,
       logs: logs ?? this.logs,
       logFilter: logFilter ?? this.logFilter,
       logFilePath:
@@ -145,6 +150,7 @@ class VpnController extends StateNotifier<VpnState> {
         .listen(_handleNativeEvent);
     unawaited(_consumePendingImportUri());
     unawaited(_loadSavedSubscription());
+    unawaited(loadSplitTunnelSettings());
     loadProfiles();
   }
 
@@ -193,6 +199,114 @@ class VpnController extends StateNotifier<VpnState> {
 
   void setSubscriptionInput(String value) {
     state = state.copyWith(subscriptionInput: value);
+  }
+
+  Future<void> loadSplitTunnelSettings() async {
+    final result =
+        await _ref.read(vpnRepositoryProvider).getSplitTunnelSettings();
+    switch (result) {
+      case Success<SplitTunnelSettings>(data: final settings):
+        state = state.copyWith(splitTunnelSettings: settings);
+      case FailureResult<SplitTunnelSettings>(message: final message):
+        state = state.copyWith(errorMessage: message);
+    }
+  }
+
+  Future<void> setSplitTunnelEnabled(bool enabled) async {
+    await _saveSplitTunnelSettings(
+      state.splitTunnelSettings.copyWith(enabled: enabled),
+    );
+  }
+
+  Future<void> setSplitTunnelMode(SplitTunnelMode mode) async {
+    await _saveSplitTunnelSettings(
+      state.splitTunnelSettings.copyWith(mode: mode),
+    );
+  }
+
+  Future<void> addSplitTunnelRule({
+    required SplitTunnelRuleType type,
+    required String value,
+  }) async {
+    final normalizedValue = _normalizeRuleValue(type, value);
+    if (normalizedValue.isEmpty) {
+      state = state.copyWith(errorMessage: 'Rule value cannot be empty.');
+      return;
+    }
+
+    final duplicateExists = state.splitTunnelSettings.rules.any(
+      (rule) =>
+          rule.type == type &&
+          rule.value.toLowerCase() == normalizedValue.toLowerCase(),
+    );
+    if (duplicateExists) {
+      state = state.copyWith(errorMessage: 'This rule already exists.');
+      return;
+    }
+
+    final newRule = SplitTunnelRule(
+      id: 'rule_${DateTime.now().microsecondsSinceEpoch}',
+      type: type,
+      value: normalizedValue,
+      enabled: true,
+    );
+    await _saveSplitTunnelSettings(
+      state.splitTunnelSettings.copyWith(
+        rules: [...state.splitTunnelSettings.rules, newRule],
+      ),
+    );
+  }
+
+  Future<void> toggleSplitTunnelRule({
+    required String id,
+    required bool enabled,
+  }) async {
+    final nextRules = state.splitTunnelSettings.rules
+        .map(
+          (rule) => rule.id == id ? rule.copyWith(enabled: enabled) : rule,
+        )
+        .toList(growable: false);
+    await _saveSplitTunnelSettings(
+      state.splitTunnelSettings.copyWith(rules: nextRules),
+    );
+  }
+
+  Future<void> deleteSplitTunnelRule(String id) async {
+    final nextRules = state.splitTunnelSettings.rules
+        .where((rule) => rule.id != id)
+        .toList(growable: false);
+    await _saveSplitTunnelSettings(
+      state.splitTunnelSettings.copyWith(rules: nextRules),
+    );
+  }
+
+  String _normalizeRuleValue(SplitTunnelRuleType type, String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '';
+    }
+    if (type == SplitTunnelRuleType.domain) {
+      return trimmed.toLowerCase();
+    }
+    return trimmed;
+  }
+
+  Future<void> _saveSplitTunnelSettings(
+      SplitTunnelSettings nextSettings) async {
+    final selectedProfile = state.selectedProfile;
+    state = state.copyWith(
+      splitTunnelSettings: nextSettings,
+      runtimeConfigPreview: selectedProfile == null
+          ? null
+          : _buildRuntimeConfigPreview(selectedProfile, nextSettings),
+      clearError: true,
+    );
+    final result = await _ref
+        .read(vpnRepositoryProvider)
+        .saveSplitTunnelSettings(nextSettings);
+    if (result is FailureResult<void>) {
+      state = state.copyWith(errorMessage: result.message);
+    }
   }
 
   void clearErrorMessage() {
@@ -721,8 +835,14 @@ class VpnController extends StateNotifier<VpnState> {
     );
   }
 
-  String _buildRuntimeConfigPreview(VpnProfile profile) {
-    final result = _ref.read(buildRuntimeConfigProvider).call(profile);
+  String _buildRuntimeConfigPreview(
+    VpnProfile profile, [
+    SplitTunnelSettings? splitTunnelSettings,
+  ]) {
+    final result = _ref.read(buildRuntimeConfigProvider).call(
+          profile,
+          splitTunnelSettings: splitTunnelSettings ?? state.splitTunnelSettings,
+        );
     return switch (result) {
       Success<TunnelRuntimeConfig>(data: final config) => config.toPrettyJson(),
       FailureResult<TunnelRuntimeConfig>(message: final message) =>

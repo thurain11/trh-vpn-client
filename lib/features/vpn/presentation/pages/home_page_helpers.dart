@@ -176,3 +176,19 @@ String _formatClock(DateTime timestamp) {
   final second = timestamp.second.toString().padLeft(2, '0');
   return '$hour:$minute:$second';
 }
+
+String _splitTunnelRuleTypeLabel(SplitTunnelRuleType type) {
+  return switch (type) {
+    SplitTunnelRuleType.appPackage => 'App Package',
+    SplitTunnelRuleType.domain => 'Domain',
+    SplitTunnelRuleType.ipCidr => 'IP / CIDR',
+  };
+}
+
+String _splitTunnelRuleHint(SplitTunnelRuleType type) {
+  return switch (type) {
+    SplitTunnelRuleType.appPackage => 'com.example.app',
+    SplitTunnelRuleType.domain => 'example.com',
+    SplitTunnelRuleType.ipCidr => '192.168.1.0/24',
+  };
+}

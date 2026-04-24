@@ -14,6 +14,7 @@ import '../features/vpn/application/usecases/load_profiles.dart';
 import '../features/vpn/application/usecases/observe_vpn_status.dart';
 import '../features/vpn/data/builders/default_vpn_runtime_config_builder.dart';
 import '../features/vpn/data/datasources/local/profile_local_data_source.dart';
+import '../features/vpn/data/datasources/local/split_tunnel_local_data_source.dart';
 import '../features/vpn/data/datasources/remote/subscription_remote_data_source.dart';
 import '../features/vpn/data/parsers/composite_profile_importer.dart';
 import '../features/vpn/data/parsers/shadowsocks_uri_parser.dart';
@@ -43,6 +44,10 @@ final vpnStatusStreamProvider = Provider<VpnStatusStream>(
 
 final profileLocalDataSourceProvider = Provider<ProfileLocalDataSource>(
   (ref) => SharedPrefsProfileLocalDataSource(),
+);
+
+final splitTunnelLocalDataSourceProvider = Provider<SplitTunnelLocalDataSource>(
+  (ref) => SharedPrefsSplitTunnelLocalDataSource(),
 );
 
 final vpnRuntimeConfigBuilderProvider = Provider<VpnRuntimeConfigBuilder>(
@@ -82,6 +87,7 @@ final vpnRepositoryProvider = Provider<VpnRepository>(
     bridge: ref.watch(vpnBridgeProvider),
     statusStream: ref.watch(vpnStatusStreamProvider),
     profileLocalDataSource: ref.watch(profileLocalDataSourceProvider),
+    splitTunnelLocalDataSource: ref.watch(splitTunnelLocalDataSourceProvider),
     runtimeConfigBuilder: ref.watch(vpnRuntimeConfigBuilderProvider),
   ),
 );

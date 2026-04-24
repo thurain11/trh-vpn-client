@@ -1,4 +1,5 @@
 import '../../../../core/result/result.dart';
+import '../../domain/entities/split_tunnel_settings.dart';
 import '../../domain/entities/tunnel_runtime_config.dart';
 import '../../domain/entities/traffic_stats.dart';
 import '../../domain/entities/vpn_profile.dart';
@@ -6,6 +7,7 @@ import '../../domain/entities/vpn_status.dart';
 import '../../domain/repositories/vpn_repository.dart';
 import '../../domain/services/vpn_runtime_config_builder.dart';
 import '../datasources/local/profile_local_data_source.dart';
+import '../datasources/local/split_tunnel_local_data_source.dart';
 import '../models/vpn_profile_model.dart';
 import '../../platform/vpn_bridge.dart';
 import '../../platform/vpn_status_stream.dart';
@@ -15,26 +17,43 @@ class VpnRepositoryImpl implements VpnRepository {
     required VpnBridge bridge,
     required VpnStatusStream statusStream,
     required ProfileLocalDataSource profileLocalDataSource,
+    required SplitTunnelLocalDataSource splitTunnelLocalDataSource,
     required VpnRuntimeConfigBuilder runtimeConfigBuilder,
   })  : _bridge = bridge,
         _statusStream = statusStream,
         _profileLocalDataSource = profileLocalDataSource,
+        _splitTunnelLocalDataSource = splitTunnelLocalDataSource,
         _runtimeConfigBuilder = runtimeConfigBuilder;
 
   final VpnBridge _bridge;
   final VpnStatusStream _statusStream;
   final ProfileLocalDataSource _profileLocalDataSource;
+  final SplitTunnelLocalDataSource _splitTunnelLocalDataSource;
   final VpnRuntimeConfigBuilder _runtimeConfigBuilder;
 
   @override
-  Result<TunnelRuntimeConfig> buildRuntimeConfig(VpnProfile profile) {
-    return _runtimeConfigBuilder.build(profile);
+  Result<TunnelRuntimeConfig> buildRuntimeConfig(
+    VpnProfile profile, {
+    SplitTunnelSettings splitTunnelSettings = const SplitTunnelSettings(),
+  }) {
+    return _runtimeConfigBuilder.build(
+      profile,
+      splitTunnelSettings: splitTunnelSettings,
+    );
   }
 
   @override
   Future<Result<void>> connect(VpnProfile profile) async {
     try {
-      final runtimeConfigResult = _runtimeConfigBuilder.build(profile);
+      final splitTunnelSettings = switch (await getSplitTunnelSettings()) {
+        Success<SplitTunnelSettings>(data: final settings) => settings,
+        FailureResult<SplitTunnelSettings>() => const SplitTunnelSettings(),
+      };
+
+      final runtimeConfigResult = _runtimeConfigBuilder.build(
+        profile,
+        splitTunnelSettings: splitTunnelSettings,
+      );
       switch (runtimeConfigResult) {
         case FailureResult<TunnelRuntimeConfig>(message: final message):
           return FailureResult(message);
@@ -83,6 +102,28 @@ class VpnRepositoryImpl implements VpnRepository {
   Future<Result<void>> deleteProfile(String id) async {
     try {
       await _profileLocalDataSource.deleteProfile(id);
+      return const Success(null);
+    } catch (error) {
+      return FailureResult(error.toString());
+    }
+  }
+
+  @override
+  Future<Result<SplitTunnelSettings>> getSplitTunnelSettings() async {
+    try {
+      final settings = await _splitTunnelLocalDataSource.getSettings();
+      return Success(settings);
+    } catch (error) {
+      return FailureResult(error.toString());
+    }
+  }
+
+  @override
+  Future<Result<void>> saveSplitTunnelSettings(
+    SplitTunnelSettings settings,
+  ) async {
+    try {
+      await _splitTunnelLocalDataSource.saveSettings(settings);
       return const Success(null);
     } catch (error) {
       return FailureResult(error.toString());
