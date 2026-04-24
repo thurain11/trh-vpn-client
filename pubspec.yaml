@@ -14,7 +14,7 @@ dependencies:
   flutter_v2ray_client: ^3.1.0
   shared_preferences: ^2.3.2
   http: ^1.2.2
-  mobile_scanner: ^5.2.3
+  qr_code_scanner_plus: ^2.1.1
   package_info_plus: ^8.1.0
 
 dependency_overrides:

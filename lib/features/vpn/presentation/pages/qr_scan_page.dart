@@ -1,5 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_code_scanner_plus/qr_code_scanner_plus.dart';
 
 class QrScanPage extends StatefulWidget {
   const QrScanPage({super.key});
@@ -9,18 +11,28 @@ class QrScanPage extends StatefulWidget {
 }
 
 class _QrScanPageState extends State<QrScanPage> {
-  final MobileScannerController _controller = MobileScannerController(
-    detectionSpeed: DetectionSpeed.unrestricted,
-    facing: CameraFacing.back,
-    torchEnabled: false,
-  );
+  final GlobalKey _qrKey = GlobalKey(debugLabel: 'lunex_qr_scanner');
+  QRViewController? _controller;
 
   bool _handled = false;
   bool _torchEnabled = false;
 
   @override
+  void reassemble() {
+    super.reassemble();
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+    if (Platform.isAndroid) {
+      controller.pauseCamera();
+    }
+    controller.resumeCamera();
+  }
+
+  @override
   void dispose() {
-    _controller.dispose();
+    _controller = null;
     super.dispose();
   }
 
@@ -35,11 +47,16 @@ class _QrScanPageState extends State<QrScanPage> {
         actions: [
           IconButton(
             onPressed: () async {
-              await _controller.toggleTorch();
+              final controller = _controller;
+              if (controller == null) {
+                return;
+              }
+              await controller.toggleFlash();
+              final enabled = await controller.getFlashStatus() ?? false;
               if (!mounted) {
                 return;
               }
-              setState(() => _torchEnabled = !_torchEnabled);
+              setState(() => _torchEnabled = enabled);
             },
             icon: Icon(
               _torchEnabled ? Icons.flash_on_rounded : Icons.flash_off_rounded,
@@ -50,9 +67,17 @@ class _QrScanPageState extends State<QrScanPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          MobileScanner(
-            controller: _controller,
-            onDetect: _handleDetect,
+          QRView(
+            key: _qrKey,
+            onQRViewCreated: _onQrViewCreated,
+            overlay: QrScannerOverlayShape(
+              borderColor: Colors.white,
+              borderRadius: 16,
+              borderLength: 28,
+              borderWidth: 6,
+              cutOutSize: 250,
+            ),
+            onPermissionSet: _onPermissionSet,
           ),
           IgnorePointer(
             child: Center(
@@ -91,15 +116,33 @@ class _QrScanPageState extends State<QrScanPage> {
     );
   }
 
-  void _handleDetect(BarcodeCapture capture) {
+  void _onQrViewCreated(QRViewController controller) {
+    _controller = controller;
+    controller.scannedDataStream.listen(_handleDetect);
+    controller.getFlashStatus().then((enabled) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _torchEnabled = enabled ?? false);
+    });
+  }
+
+  void _onPermissionSet(QRViewController controller, bool hasPermission) {
+    if (hasPermission || !mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+          content: Text('Camera permission is required to scan QR.')),
+    );
+  }
+
+  void _handleDetect(Barcode barcode) {
     if (_handled) {
       return;
     }
 
-    final value = capture.barcodes.map(_extractBarcodeValue).firstWhere(
-          (item) => item.isNotEmpty,
-          orElse: () => '',
-        );
+    final value = _extractBarcodeValue(barcode);
     if (value.isEmpty) {
       return;
     }
@@ -107,18 +150,14 @@ class _QrScanPageState extends State<QrScanPage> {
     debugPrint('QR Code Result (${value.length} chars) ===> $value');
 
     _handled = true;
+    _controller?.pauseCamera();
     Navigator.of(context).pop(value);
   }
 
   String _extractBarcodeValue(Barcode barcode) {
-    final rawValue = barcode.rawValue;
-    if (rawValue != null && rawValue.trim().isNotEmpty) {
-      return _sanitize(rawValue);
-    }
-
-    final displayValue = barcode.displayValue;
-    if (displayValue != null && displayValue.trim().isNotEmpty) {
-      return _sanitize(displayValue);
+    final code = barcode.code;
+    if (code != null && code.trim().isNotEmpty) {
+      return _sanitize(code);
     }
 
     final bytes = barcode.rawBytes;
